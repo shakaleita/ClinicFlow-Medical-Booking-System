@@ -63,3 +63,12 @@ def test_v06_audit_record_and_cross_site_guard():
     assert client.get('/api/auth/audit',params={'limit':201}).status_code==422
     blocked=client.post('/api/__audit_probe_404',headers={'sec-fetch-site':'cross-site'})
     assert blocked.status_code==403
+
+def test_canonical_times_prevent_duplicate_slots():
+    payload={'patient':'Demo A','doctor':'Dr Time','day':'2031-02-03','time':'10:00'}
+    assert client.post('/api/items',json=payload).status_code==201
+    assert client.post('/api/items',json={**payload,'time':'10:00:00'}).status_code==422
+    assert client.post('/api/items',json={**payload,'time':'10:00+00:00'}).status_code==422
+    assert client.post('/api/items',json={**payload,'day':'2031-2-3'}).status_code==422
+    assert client.post('/api/items',json={**payload,'day':'2031-02-30'}).status_code==422
+    assert client.post('/api/items',json=payload).status_code==409
