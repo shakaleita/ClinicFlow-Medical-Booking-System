@@ -5,9 +5,12 @@ from fastapi.testclient import TestClient
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 temp = tempfile.mkdtemp(prefix='portfolio-test-')
 os.environ['APP_DB']=str(Path(temp)/'test.db')
+os.environ['OWNER_SETUP_TOKEN']='test-only-setup-token-1234567890123'
 if 'main' in sys.modules: del sys.modules['main']
 from main import app
 client=TestClient(app)
+assert client.post('/api/auth/register',json={'username':'qaowner','password':'DemoPassword123!','setup_token':'test-only-setup-token-1234567890123'}).status_code==201
+assert client.post('/api/auth/login',json={'username':'qaowner','password':'DemoPassword123!'}).status_code==200
 
 def test_health():
     r=client.get('/api/health')
@@ -35,3 +38,16 @@ def test_appointment_availability_and_reschedule():
     assert moved.status_code==200 and moved.json()['time']=='11:00'
     assert client.post('/api/items',json={**body,'day':'not-a-date'}).status_code==422
 
+
+
+def test_v05_booking_audit():
+    a=client.post('/api/items',json={'patient':'Test Person','doctor':'Dr Example','day':'2027-03-04','time':'11:00'}).json()
+    assert client.patch(f"/api/reschedule/{a['id']}",json={'day':'2027-03-05','time':'12:00'}).status_code==200
+    assert client.patch(f"/api/items/{a['id']}").status_code==200
+    history=client.get(f"/api/appointments/{a['id']}/history").json()
+    assert [row['action'] for row in history]==['rescheduled','cancelled']
+
+def test_v05_authentication():
+    with TestClient(app) as anonymous:
+        assert anonymous.get('/api/items').status_code==401
+        assert anonymous.post('/api/auth/register',json={'username':'intruder','password':'DemoPassword123!','setup_token':'bad'}).status_code==403

@@ -60,8 +60,10 @@ def create_item(a:Appointment):
 @app.patch('/api/items/{item_id}')
 def cancel(item_id:int):
     with db() as c:
+        prior=c.execute("SELECT day,time FROM appointments WHERE id=? AND status='Booked'",(item_id,)).fetchone()
         cur=c.execute("UPDATE appointments SET status='Cancelled' WHERE id=? AND status='Booked'",(item_id,))
         if not cur.rowcount:raise HTTPException(404,'Active appointment not found')
+        c.execute('INSERT INTO appointment_events(appointment_id,action,from_day,from_time) VALUES(?,?,?,?)',(item_id,'cancelled',prior['day'],prior['time']))
         return {'id':item_id,'status':'Cancelled'}
 @app.get('/api/summary')
 def summary():
@@ -101,7 +103,24 @@ def reschedule(item_id: int, slot: Reschedule):
             if not existing or existing['status']!='Booked':
                 raise HTTPException(404,'Active appointment not found')
             con.execute('UPDATE appointments SET day=?,time=? WHERE id=?',(slot.day,slot.time,item_id))
+            con.execute('INSERT INTO appointment_events(appointment_id,action,from_day,from_time,to_day,to_time) VALUES(?,?,?,?,?,?)',(item_id,'rescheduled',existing['day'],existing['time'],slot.day,slot.time))
             return dict(con.execute('SELECT * FROM appointments WHERE id=?',(item_id,)).fetchone())
     except sqlite3.IntegrityError:
         raise HTTPException(409,'Doctor already booked at this time')
 
+
+setup("""CREATE TABLE IF NOT EXISTS appointment_events(
+ id INTEGER PRIMARY KEY, appointment_id INTEGER NOT NULL, action TEXT NOT NULL,
+ from_day TEXT, from_time TEXT, to_day TEXT, to_time TEXT,
+ created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+ CREATE INDEX IF NOT EXISTS idx_appointment_events ON appointment_events(appointment_id,id);""")
+
+@app.get('/api/appointments/{appointment_id}/history')
+def appointment_history(appointment_id:int):
+    with db() as con:
+        if not con.execute('SELECT 1 FROM appointments WHERE id=?',(appointment_id,)).fetchone():
+            raise HTTPException(404,'Appointment not found')
+        return rows(con.execute('SELECT * FROM appointment_events WHERE appointment_id=? ORDER BY id',(appointment_id,)))
+
+from security import install_auth
+install_auth(app,DB)
