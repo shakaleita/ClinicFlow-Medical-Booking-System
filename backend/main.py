@@ -79,11 +79,17 @@ class Reschedule(BaseModel):
     time: str
 
 def verify_slot(day: str, slot: str):
+    # Canonical formats are important: 10:00 and 10:00:00 must not occupy
+    # separate unique index slots for the same doctor.
+    import re
+    if (not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", day or "") or
+        not re.fullmatch(r"(?:[01][0-9]|2[0-3]):[0-5][0-9]", slot or "")):
+        raise HTTPException(422,'Use canonical date YYYY-MM-DD and time HH:MM')
     try:
         _date.fromisoformat(day)
         _time.fromisoformat(slot)
     except ValueError:
-        raise HTTPException(422,'Use ISO date YYYY-MM-DD and time HH:MM')
+        raise HTTPException(422,'Use a valid calendar date and time')
 
 @app.get('/api/availability')
 def availability(doctor: str, day: str):
